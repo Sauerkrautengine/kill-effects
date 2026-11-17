@@ -18,7 +18,7 @@ public final class KillEffectsClient implements ClientModInitializer {
         EffectConfig.load();
         KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("killeffects", "main"));
         openMenu = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-                "key.killeffects.open_menu", InputConstants.Type.KEYSYM, InputConstants.KEY_K, category));
+        "key.killeffects.open_menu",InputConstants.KEY_K,category
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (openMenu.consumeClick()) client.setScreen(new EffectScreen());
             EffectManager.tick(client);
