@@ -1,6 +1,7 @@
 package com.example.killeffects;
 
 import com.example.killeffects.config.EffectConfig;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import com.example.killeffects.effect.EffectManager;
 import com.example.killeffects.menu.EffectScreen;
 import net.fabricmc.api.ClientModInitializer;
@@ -20,13 +21,13 @@ public final class KillEffectsClient implements ClientModInitializer {
         openMenu = KeyMappingHelper.registerKeyMapping(new KeyMapping(
         "key.killeffects.open_menu",InputConstants.KEY_K,category
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (openMenu.consumeClick()) client.setScreen(new EffectScreen());
+            while (openMenu.consumeClick()) client.gui.setScreen(new EffectScreen());
             EffectManager.tick(client);
         });
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
-                dispatcher.register(net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal("killeffects")
+                dispatcher.register(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("killeffects")
                         .executes(context -> {
-                            Minecraft.getInstance().setScreen(new EffectScreen());
+                            Minecraft.getInstance().gui.setScreen(new EffectScreen());
                             return 1;
                         })));
     }
