@@ -17,13 +17,13 @@ public final class KillEffectsClient implements ClientModInitializer {
     private static KeyMapping openMenu;
     @Override public void onInitializeClient() {
         EffectConfig.load();
-        KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("killeffects", "main"));
-        openMenu = KeyMappingHelper.registerKeyMapping(new KeyMapping(
-        "key.killeffects.open_menu",InputConstants.KEY_K,category
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (openMenu.consumeClick()) client.gui.setScreen(new EffectScreen());
-            EffectManager.tick(client);
-        });
+        KeyMapping openMenu = KeyMappingHelper.registerKeyMapping(
+           new KeyMapping(
+            "key.killeffects.open_menu",
+            InputConstants.KEY_K,
+            category
+    )
+);
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
                 dispatcher.register(net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("killeffects")
                         .executes(context -> {
