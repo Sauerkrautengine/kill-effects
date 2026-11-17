@@ -1,5 +1,6 @@
 package com.example.killeffects;
 
+import net.minecraft.resources.Identifier;
 import com.example.killeffects.config.EffectConfig;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import com.example.killeffects.effect.EffectManager;
@@ -17,11 +18,15 @@ public final class KillEffectsClient implements ClientModInitializer {
     private static KeyMapping openMenu;
     @Override public void onInitializeClient() {
         EffectConfig.load();
-        KeyMapping openMenu = KeyMappingHelper.registerKeyMapping(
-           new KeyMapping(
-            "key.killeffects.open_menu",
-            InputConstants.KEY_K,
-            category
+KeyMapping.Category category = KeyMapping.Category.register(
+    Identifier.fromNamespaceAndPath("killeffects", "main")
+);
+
+KeyMapping openMenu = KeyMappingHelper.registerKeyMapping(
+    new KeyMapping(
+        "key.killeffects.open_menu",
+        InputConstants.KEY_K,
+        category
     )
 );
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
