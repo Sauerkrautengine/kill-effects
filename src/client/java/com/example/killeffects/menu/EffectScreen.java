@@ -39,7 +39,6 @@ public final class EffectScreen extends Screen {
     @Override public void extractRenderState(GuiGraphicsExtractor graphics,int mouseX,int mouseY,float delta){
         super.extractRenderState(graphics,mouseX,mouseY,delta);
         int left=(width-500)/2;
-        graphics.fill(left-8,18,left+508,344,0xE9101420);
         graphics.text(font,"KILL EFFECTS",left,12,0xFFE9F4FF,true);
         graphics.text(font,"Select a cosmetic effect · click Preview to watch it",left,55,0xFF9FB1C8,true);
         var selected=EffectManager.find(EffectConfig.selected);
