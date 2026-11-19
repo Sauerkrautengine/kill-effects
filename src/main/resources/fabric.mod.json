@@ -7,6 +7,7 @@
   "authors": ["KillEffects contributors"],
   "license": "MIT",
   "environment": "client",
+  "mixins": ["killeffects.client.mixins.json"],
   "entrypoints": { "client": ["com.example.killeffects.KillEffectsClient"] },
   "depends": {
     "fabricloader": ">=0.19.5",
