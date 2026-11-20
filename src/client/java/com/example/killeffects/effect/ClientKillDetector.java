@@ -1,3 +1,35 @@
+package com.example.killeffects.effect;
+
+import com.example.killeffects.config.EffectConfig;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Locale;
+import java.util.Map;
+
+/** Client-only, best-effort detection for kills credited to the local player. */
+public final class ClientKillDetector {
+    private static final long HIT_WINDOW_TICKS = 100;
+    private static final long POSITION_MEMORY_TICKS = 120;
+    private static final long CONFIRMED_HIT_WINDOW_TICKS = 100;
+    private static final long VANISH_FALLBACK_TICKS = 40;
+    private static final long DEDUPE_TICKS = 60;
+    private static final float LOW_HEALTH = 8.0F;
+
+    private static final Map<Integer, Hit> hits = new HashMap<>();
+    private static final Map<Integer, LastPosition> positions = new HashMap<>();
+    private static final Map<String, LastPosition> positionsByName = new HashMap<>();
+    private static final Map<String, Long> recentKills = new HashMap<>();
+    private static ClientLevel trackedLevel;
+    private static long tick;
 
     private ClientKillDetector() { }
 
@@ -63,18 +95,6 @@
                 if (living.isDeadOrDying()) {
                     trigger(client, hit.name, hit.position);
                     iterator.remove();
-                }
-                continue;
-            }
-
-            LastPosition last = positions.get(entry.getKey());
-            if (last != null) hit.position = last.position();
-            boolean recentlyConfirmedHurt = tick - hit.lastConfirmedHurtTick <= CONFIRMED_HIT_WINDOW_TICKS;
-            boolean vanishedSoonAfterAttack = tick - hit.lastHitTick <= VANISH_FALLBACK_TICKS;
-            if (hit.position != null && (recentlyConfirmedHurt || hit.lastHealth <= LOW_HEALTH || vanishedSoonAfterAttack)) {
-                trigger(client, hit.name, hit.position);
-            }
-            iterator.remove();
                 }
                 continue;
             }
