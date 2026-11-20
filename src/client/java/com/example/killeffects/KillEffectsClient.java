@@ -30,14 +30,12 @@ public final class KillEffectsClient implements ClientModInitializer {
             ClientKillDetector.tick(client);
             EffectManager.tick(client);
         });
-        // Signal 1: remember the players you hit, so their death can be credited to you
         AttackEntityCallback.EVENT.register((player, level, hand, entity, hitResult) -> {
             if (level.isClientSide() && player == Minecraft.getInstance().player && entity instanceof Player victim) {
                 ClientKillDetector.onAttack(victim);
             }
             return InteractionResult.PASS;
         });
-        // Signal 2: death messages such as "X was shot by <you>"
         ClientReceiveMessageEvents.GAME.register((message, overlay) ->
                 ClientKillDetector.onGameMessage(Minecraft.getInstance(), message));
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
