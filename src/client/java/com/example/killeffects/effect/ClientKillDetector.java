@@ -1,50 +1,16 @@
-package com.example.killeffects.effect;
-
-import com.example.killeffects.config.EffectConfig;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.contents.TranslatableContents;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
-
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-
-/**
- * Detects kills scored by the local player, purely on the client.
- *
- * Vanilla does NOT tell the killer about a kill: the "player combat kill" packet goes to the player who died.
- * So two independent signals are used instead:
- *  1. Hit tracking: players you hit are watched for a few seconds. If one of them dies (or disappears while
- *     almost dead) the kill is credited to you.
- *  2. Death messages: a message like "X was slain by <you>" or "X was shot by <you>" also credits you
- *     (this covers arrows and other indirect kills).
- * A kill is only counted once, even if both signals fire.
- */
-public final class ClientKillDetector {
-    private static final long HIT_WINDOW_TICKS = 100;
-    private static final long POSITION_MEMORY_TICKS = 100;
-    private static final long DEDUPE_TICKS = 60;
-    private static final float LOW_HEALTH = 8.0F;
-
-    private static final Map<Integer, Hit> hits = new HashMap<>();
-    private static final Map<Integer, LastPosition> positions = new HashMap<>();
-    private static final Map<String, LastPosition> positionsByName = new HashMap<>();
-    private static final Map<String, Long> recentKills = new HashMap<>();
-    private static ClientLevel trackedLevel;
-    private static long tick;
 
     private ClientKillDetector() { }
 
-    /** Called when the local player attacks another player. */
     public static void onAttack(Player victim) {
-        Hit hit = hits.get(victim.getId());
-        if (hit == null) hits.put(victim.getId(), new Hit(tick, victim.getName().getString()));
-        else hit.lastHitTick = tick;
+        Hit hit = hits.computeIfAbsent(victim.getId(), ignored -> new Hit(victim.getName().getString(), tick));
+        hit.lastHitTick = tick;
+        hit.position = BlockPos.containing(victim.position());
+    }
+
+    /** Called from the vanilla hurt-animation packet; it still works when HP metadata is hidden. */
+    public static void onHurtAnimation(int entityId) {
+        Hit hit = hits.get(entityId);
+        if (hit != null && tick - hit.lastHitTick <= HIT_WINDOW_TICKS) hit.lastConfirmedHurtTick = tick;
     }
 
     public static void tick(Minecraft client) {
@@ -60,68 +26,138 @@ public final class ClientKillDetector {
         tick++;
         for (Player player : client.level.players()) {
             if (player == client.player) continue;
-            LastPosition last = new LastPosition(BlockPos.containing(player.position()), tick);
+            BlockPos currentPosition = BlockPos.containing(player.position());
+            Hit hit = hits.get(player.getId());
+            LastPosition previous = positions.get(player.getId());
+            if (hit != null && previous != null && tick - hit.lastHitTick <= HIT_WINDOW_TICKS
+                    && tick - hit.lastConfirmedHurtTick <= CONFIRMED_HIT_WINDOW_TICKS
+                    && distanceSquared(previous.position(), currentPosition) >= 24L * 24L) {
+                trigger(client, hit.name, previous.position());
+                hit.completed = true;
+            }
+            LastPosition last = new LastPosition(currentPosition, tick);
             positions.put(player.getId(), last);
             positionsByName.put(player.getName().getString(), last);
         }
-        positions.values().removeIf(p -> tick - p.seenAtTick() > POSITION_MEMORY_TICKS);
-        positionsByName.values().removeIf(p -> tick - p.seenAtTick() > POSITION_MEMORY_TICKS);
-        recentKills.values().removeIf(t -> tick - t > DEDUPE_TICKS);
+        positions.values().removeIf(position -> tick - position.seenAtTick() > POSITION_MEMORY_TICKS);
+        positionsByName.values().removeIf(position -> tick - position.seenAtTick() > POSITION_MEMORY_TICKS);
+        recentKills.values().removeIf(killTick -> tick - killTick > DEDUPE_TICKS);
 
         Iterator<Map.Entry<Integer, Hit>> iterator = hits.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Integer, Hit> entry = iterator.next();
             Hit hit = entry.getValue();
+            if (hit.completed) {
+                iterator.remove();
+                continue;
+            }
             if (tick - hit.lastHitTick > HIT_WINDOW_TICKS) {
                 iterator.remove();
                 continue;
             }
+
             Entity entity = client.level.getEntity(entry.getKey());
             if (entity instanceof LivingEntity living && !living.isRemoved()) {
+                hit.position = BlockPos.containing(living.position());
                 hit.lastHealth = living.getHealth();
                 if (living.isDeadOrDying()) {
-                    trigger(client, hit.name, BlockPos.containing(living.position()));
+                    trigger(client, hit.name, hit.position);
                     iterator.remove();
                 }
-            } else {
-                // The victim vanished: count it only if it was almost dead (not a teleport or a log-out)
-                LastPosition last = positions.get(entry.getKey());
-                if (hit.lastHealth <= LOW_HEALTH && last != null) trigger(client, hit.name, last.position());
-                iterator.remove();
+                continue;
             }
+
+            LastPosition last = positions.get(entry.getKey());
+            if (last != null) hit.position = last.position();
+            boolean recentlyConfirmedHurt = tick - hit.lastConfirmedHurtTick <= CONFIRMED_HIT_WINDOW_TICKS;
+            boolean vanishedSoonAfterAttack = tick - hit.lastHitTick <= VANISH_FALLBACK_TICKS;
+            if (hit.position != null && (recentlyConfirmedHurt || hit.lastHealth <= LOW_HEALTH || vanishedSoonAfterAttack)) {
+                trigger(client, hit.name, hit.position);
+            }
+            iterator.remove();
+                }
+                continue;
+            }
+
+            LastPosition last = positions.get(entry.getKey());
+            if (last != null) hit.position = last.position();
+            boolean recentlyConfirmedHurt = tick - hit.lastConfirmedHurtTick <= CONFIRMED_HIT_WINDOW_TICKS;
+            boolean vanishedSoonAfterAttack = tick - hit.lastHitTick <= VANISH_FALLBACK_TICKS;
+            if (hit.position != null && (recentlyConfirmedHurt || hit.lastHealth <= LOW_HEALTH || vanishedSoonAfterAttack)) {
+                trigger(client, hit.name, hit.position);
+            }
+            iterator.remove();
         }
     }
 
-    /** Called for every chat/game message; credits kills announced as "<victim> ... by <you>". */
+    /** Handles vanilla translated death messages and common server-generated text messages. */
     public static void onGameMessage(Minecraft client, Component message) {
         if (client.player == null || client.level == null) return;
-        if (!(message.getContents() instanceof TranslatableContents contents)) return;
-        if (!contents.getKey().startsWith("death.")) return;
-        Object[] args = contents.getArgs();
-        if (args.length < 2) return;
-
-        String victim = text(args[0]);
-        String killer = text(args[1]);
         String me = client.player.getName().getString();
-        if (!killer.equals(me) || victim.equals(me)) return;
 
-        LastPosition last = positionsByName.get(victim);
-        if (last == null) return; // not a player we have seen (for example a mob)
-        trigger(client, victim, last.position());
+        if (message.getContents() instanceof TranslatableContents contents
+                && contents.getKey().startsWith("death.")) {
+            Object[] args = contents.getArgs();
+            if (args.length >= 2) {
+                String victim = text(args[0]);
+                String killer = text(args[1]);
+                if (killer.equalsIgnoreCase(me) && !victim.equalsIgnoreCase(me)) {
+                    LastPosition position = positionsByName.get(victim);
+                    if (position != null) trigger(client, victim, position.position());
+                }
+            }
+            return;
+        }
+
+        String raw = message.getString();
+        String lower = raw.toLowerCase(Locale.ROOT);
+        if (!containsKillWord(lower)) return;
+
+        for (Map.Entry<String, LastPosition> entry : positionsByName.entrySet()) {
+            String victim = entry.getKey();
+            if (victim.equalsIgnoreCase(me) || !lower.contains(victim.toLowerCase(Locale.ROOT))) continue;
+            boolean namesKiller = lower.contains(me.toLowerCase(Locale.ROOT));
+            boolean saysYouKilled = lower.contains("du hast") || lower.contains("you killed")
+                    || lower.contains("you eliminated") || lower.contains("kill +");
+            if (namesKiller || saysYouKilled) trigger(client, victim, entry.getValue().position());
+        }
+
+        // Some game modes only show a generic "Kill +1" or "Du hast einen Kill" actionbar.
+        if ((lower.contains("kill +") || lower.contains("kill erhalten") || lower.contains("kill erzielt"))
+                && (lower.contains("du") || lower.contains("you"))) {
+            Hit newest = null;
+            for (Hit hit : hits.values()) {
+                if (tick - hit.lastHitTick <= HIT_WINDOW_TICKS
+                        && (newest == null || hit.lastHitTick > newest.lastHitTick)) newest = hit;
+            }
+            if (newest != null && newest.position != null) trigger(client, newest.name, newest.position);
+        }
     }
 
-    private static void trigger(Minecraft client, String victimName, BlockPos position) {
-        if (!EffectConfig.enabled) return;
-        Long previous = recentKills.get(victimName);
-        if (previous != null && tick - previous < DEDUPE_TICKS) return;
-        recentKills.put(victimName, tick);
+    private static boolean containsKillWord(String message) {
+        return message.contains("getötet") || message.contains("tötete") || message.contains("killed")
+                || message.contains("kill") || message.contains("eliminiert") || message.contains("eliminated")
+                || message.contains("besiegt") || message.contains("defeated") || message.contains("frag");
+    }
 
-        int effectIndex = EffectManager.EFFECTS.indexOf(EffectManager.find(EffectConfig.selected));
-        EffectManager.playKillEffect(client, effectIndex, position);
+    private static long distanceSquared(BlockPos a, BlockPos b) {
+        long dx = (long) a.getX() - b.getX();
+        long dy = (long) a.getY() - b.getY();
+        long dz = (long) a.getZ() - b.getZ();
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private static String text(Object arg) {
         return arg instanceof Component component ? component.getString() : String.valueOf(arg);
+    }
+
+    private static void trigger(Minecraft client, String victimName, BlockPos position) {
+        if (!EffectConfig.enabled || position == null) return;
+        Long previous = recentKills.get(victimName);
+        if (previous != null && tick - previous < DEDUPE_TICKS) return;
+        recentKills.put(victimName, tick);
+        int effectIndex = EffectManager.EFFECTS.indexOf(EffectManager.find(EffectConfig.selected));
+        EffectManager.playKillEffect(client, effectIndex, position);
     }
 
     private static void reset() {
@@ -136,9 +172,12 @@ public final class ClientKillDetector {
     private static final class Hit {
         final String name;
         long lastHitTick;
+        long lastConfirmedHurtTick = Long.MIN_VALUE / 2;
         float lastHealth = 20.0F;
+        BlockPos position;
+        boolean completed;
 
-        Hit(long tick, String name) {
+        Hit(String name, long tick) {
             this.name = name;
             this.lastHitTick = tick;
         }
