@@ -4,6 +4,7 @@
   "version": "${version}",
   "name": "KillEffects",
   "description": "Client-side PvP kill effects for Fabric.",
+    "icon": "assets/killeffects/icon.png",
   "authors": ["KillEffects contributors"],
   "license": "MIT",
   "environment": "client",
