@@ -23,18 +23,18 @@ public final class EffectManager {
         if (!EffectConfig.enabled || !EffectConfig.isEffectEnabled(effect.id())) return;
         if (client.player == null || client.level == null) return;
         x=position.getX()+0.5; y=position.getY(); z=position.getZ()+0.5; playing=effect; age=0;
-        if (usesGeometry(effect.id())) VisualEffectRenderer.start(effect.id(), x, y, z, effect.duration());
-        else VisualEffectRenderer.stop();
+        VisualEffectRenderer.start(effect.id(), x, y, z, effect.duration());
         if (EffectConfig.sounds) client.level.playLocalSound(x,y,z,SoundEvents.AMETHYST_BLOCK_CHIME,SoundSource.AMBIENT,0.45F,1.25F,false);
     }
     public static void tick(Minecraft client) {
         if (playing==null || client.level==null) return;
         if (!EffectConfig.enabled) { VisualEffectRenderer.stop(); playing=null; return; }
         ClientLevel level=client.level;
-        if (usesGeometry(playing.id())) VisualEffectRenderer.tick();
-        playing.tick(level,x,y,z,age,EffectConfig.particleLimit);
+        // All ten effects are now animated as custom 3D scenes. The old
+        // per-effect particle presets are intentionally no longer used here.
+        VisualEffectRenderer.tick();
         age++;
         if (age>=playing.duration()) { VisualEffectRenderer.stop(); playing=null; }
     }
-    private static boolean usesGeometry(String id) { return !id.equals("soul") && !id.equals("meteor"); }
 }
+
