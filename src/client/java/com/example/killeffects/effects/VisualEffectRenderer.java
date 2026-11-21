@@ -37,8 +37,6 @@ public final class VisualEffectRenderer {
 
     public static void initialize() {
         LevelExtractionEvents.END_EXTRACTION.register(context -> extracted = active);
-        DER_PASS was added after Fabric API 0.165.2. This earlier hook
-        // exists in the project's supported 26.3 API and runs just before translucent terrain.
         LevelRenderEvents.BEFORE_TRANSLUCENT_TERRAIN.register(VisualEffectRenderer::prepare);
         LevelRenderEvents.END_MAIN.register(context -> BUFFER.endFrame());
     }
