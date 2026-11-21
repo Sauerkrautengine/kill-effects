@@ -32,7 +32,7 @@ public final class EffectManager {
         if (!EffectConfig.enabled) { VisualEffectRenderer.stop(); playing=null; return; }
         ClientLevel level=client.level;
         if (usesGeometry(playing.id())) VisualEffectRenderer.tick();
-        else playing.tick(level,x,y,z,age,EffectConfig.particleLimit);
+        playing.tick(level,x,y,z,age,EffectConfig.particleLimit);
         age++;
         if (age>=playing.duration()) { VisualEffectRenderer.stop(); playing=null; }
     }
