@@ -19,7 +19,7 @@ import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 
-/** Draws the larger effects as animated world geometry; particles are reserved for the two effects the user liked. */
+/** Draws all kill effects as animated world geometry. */
 public final class VisualEffectRenderer {
     private static final RenderPipeline PIPELINE = RenderPipelines.DEBUG_FILLED_BOX;
     private static final StagedVertexBuffer BUFFER = new StagedVertexBuffer(() -> "KillEffects visual meshes", RenderType.SMALL_BUFFER_SIZE);
@@ -33,11 +33,20 @@ public final class VisualEffectRenderer {
     private static StagedVertexBuffer.Draw currentDraw;
     private static int emittedQuads;
 
+    // Diagnostics: they show which stage of the 3D pipeline works (see "/killeffects debug")
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+    private static int prepareCalls;
+    private static int drawCalls;
+    private static int lastQuads;
+    private static String topologyName = "unknown";
+    private static boolean failed;
+    private static String failure = "";
+
     private VisualEffectRenderer() { }
 
     public static void initialize() {
         LevelExtractionEvents.END_EXTRACTION.register(context -> extracted = active);
-        LevelRenderEvents.BEFORE_TRANSLUCENT_TERRAIN.register(VisualEffectRenderer::prepare);
+        LevelRenderEvents.BEFORE_RENDER_PASS.register(VisualEffectRenderer::prepare);
         LevelRenderEvents.END_MAIN.register(context -> BUFFER.endFrame());
     }
 
@@ -54,12 +63,39 @@ public final class VisualEffectRenderer {
 
     public static void stop() { active = null; extracted = null; }
 
+    /** Number of times the mesh was actually drawn by the render hook. 0 means the hook never ran. */
+    public static int drawCalls() { return drawCalls; }
+    public static boolean failed() { return failed; }
+    public static String stats() {
+        return "prepare=" + prepareCalls + ", quads in last frame=" + lastQuads + ", draw calls=" + drawCalls
+                + ", topology=" + topologyName + (failed ? ", FAILED: " + failure : "");
+    }
+
+    private static void fail(String stage, Throwable t) {
+        if (failed) return;
+        failed = true;
+        failure = stage + " -> " + t;
+        LOGGER.error("[KillEffects] 3D renderer disabled after an error in " + stage + ", falling back to particles", t);
+    }
+
     private static void prepare(LevelTerrainRenderContext context) {
+        if (failed) { currentDraw = null; return; }
+        try {
+            prepareUnsafe(context);
+        } catch (Throwable t) {
+            currentDraw = null;
+            fail("prepare", t);
+        }
+    }
+
+    private static void prepareUnsafe(LevelTerrainRenderContext context) {
         currentDraw = null;
         if (extracted == null) return;
+        prepareCalls++;
         VertexFormat format = PIPELINE.getVertexFormatBinding(0);
         if (format == null) return;
         PrimitiveTopology topology = PIPELINE.getPrimitiveTopology();
+        topologyName = String.valueOf(topology);
         var sorting = topology == PrimitiveTopology.QUADS ? RenderSystem.getProjectionType().vertexSorting() : null;
         currentDraw = BUFFER.appendDraw(format, topology, sorting);
         Vec3 camera = context.levelState().cameraRenderState.pos;
@@ -67,11 +103,21 @@ public final class VisualEffectRenderer {
         vertices = BUFFER.getVertexBuilder(currentDraw);
         emittedQuads = 0;
         render(extracted);
+        lastQuads = emittedQuads;
         if (emittedQuads == 0) currentDraw = null;
         BUFFER.upload();
     }
 
     public static void draw(RenderPass pass) {
+        if (failed || currentDraw == null) return;
+        try {
+            drawUnsafe(pass);
+        } catch (Throwable t) {
+            fail("draw", t);
+        }
+    }
+
+    private static void drawUnsafe(RenderPass pass) {
         if (currentDraw == null) return;
         StagedVertexBuffer.ExecuteInfo info = BUFFER.getExecuteInfo(currentDraw);
         if (info == null) return;
@@ -84,6 +130,7 @@ public final class VisualEffectRenderer {
         pass.setVertexBuffer(0, info.vertexBuffer().slice());
         pass.setIndexBuffer(info.indexBuffer(), info.indexType());
         pass.drawIndexed(info.indexCount(), 1, info.firstIndex(), info.baseVertex(), 0);
+        drawCalls++;
         pass.popDebugGroup();
     }
 
@@ -98,6 +145,8 @@ public final class VisualEffectRenderer {
             case "arcane" -> arcane(s);
             case "tornado" -> tornado(s);
             case "treasure" -> treasure(s);
+            case "soul" -> soulExplosion(s);
+            case "meteor" -> meteorStrike(s);
             case "void" -> voidPortal(s);
         }
     }
@@ -338,6 +387,121 @@ public final class VisualEffectRenderer {
         ring(x,y+.05,z,.4,1.05,56,1,.61f,.12f);
         if(open>.7) {
             for(int i=0;i<4;i++){double a=Particles.angle(i,4,t*.02);lightningSegment(x,y+.8,z,x+Math.cos(a)*.55,y+2.6,z+Math.sin(a)*.55,.09*beam,1,.75f,.21f,beam);}
+        }
+    }
+
+    /** A spectral entity gathers into a rotating core, then detonates in 3D. */
+    private static void soulExplosion(Scene s) {
+        double t=s.age(),x=s.x(),y=s.y(),z=s.z();
+        if(t<24) {
+            double rise=t*.065,orbit=.34+t*.018;
+            for(int i=0;i<8;i++) {
+                double a=i*Math.PI/4+t*.105,r=orbit+Math.sin(t*.12+i)*.12;
+                double sx=x+Math.cos(a)*r,sy=y+.2+rise+Math.sin(a*2+t*.07)*.36,sz=z+Math.sin(a)*r;
+                runeDiamond(sx,sy,sz,.16+((i%3)*.025),a+t*.08,.08f,.24f,.62f);
+                lightningSegment(sx,sy-.24,sz,x+Math.cos(a+.24)*r*.72,sy-.05,z+Math.sin(a+.24)*r*.72,.055,.08f,.56f,.82f,.9);
+            }
+            ring(x,y+.06,z,.2,.48+t*.04,48,.05f,.2f,.46f);
+        }
+        double charge=t<20?t/20.0:t<40?1:t<54?Math.max(.2,1-(t-40)/18.0):Math.max(.05,.45-(t-54)*.025);
+        if(t>=16&&t<69) {
+            double radius=t<38?.18+(t-16)*.037:t<54?.95+(t-38)*.17:Math.max(.08,3.7-(t-54)*.16);
+            sphereCage(x,y+1.15,z,radius,12,20,.035,.035f,.25f,.72f);
+            sphereCage(x,y+1.15,z,radius*.78,8,16,.022,.08f,.72f,.88f);
+            if(t<41) {
+                for(int i=0;i<6;i++) {
+                    double a=i*Math.PI/3+t*.045;
+                    runeDiamond(x+Math.cos(a)*radius,y+1.15,z+Math.sin(a)*radius,.2*charge,a,.04f,.76f,.92f);
+                }
+            }
+            if(t>=38&&t<58) {
+                double spread=(t-38)*.22;
+                for(int i=0;i<42;i++) {
+                    double u=(i+.5)/42.0,a=i*2.399963,b=Math.acos(1-2*u);
+                    double dx=Math.cos(a)*Math.sin(b),dy=Math.cos(b),dz=Math.sin(a)*Math.sin(b);
+                    double rr=spread*(.72+(i%5)*.08),sx=x+dx*rr,sy=y+1.15+dy*rr,sz=z+dz*rr;
+                    lightningSegment(x+dx*.5,y+1.15+dy*.5,z+dz*.5,sx,sy,sz,.035,.03f,.7f,.9f,charge);
+                    if(i%3==0) cube(sx,sy,sz,.09,.09,.09,.06f,.82f,.95f);
+                }
+                ring(x,y+.07,z,.12,spread*1.12,64,.04f,.6f,.9f);
+            }
+        }
+        if(t>=54&&t<77) {
+            for(int i=0;i<9;i++) {
+                double a=i*Math.PI*2/9+t*.025,r=.28+(i%4)*.12;
+                double sx=x+Math.cos(a)*r,sy=y+.18+(t-54)*.07+(i%3)*.12,sz=z+Math.sin(a)*r;
+                runeDiamond(sx,sy,sz,.11,a,.08f,.56f,.78f);
+            }
+        }
+    }
+
+    /** A falling voxel meteor builds a layered trail, then makes a visual-only impact bloom. */
+    private static void meteorStrike(Scene s) {
+        double t=s.age(),x=s.x(),y=s.y(),z=s.z();
+        if(t<25) {
+            double p=t/25.0,h=10.5-p*p*9.55,scale=.72+Math.sin(t*.4)*.045;
+            ring(x,y+.06,z,.35,.52+t*.012,40,.85f,.16f,.035f);
+            // Three tapered flame ribbons follow the meteor's descent.
+            for(int trail=0;trail<3;trail++) {
+                double a=trail*Math.PI*2/3+t*.12,off=.22+trail*.035;
+                double sx=x+Math.cos(a)*off,sz=z+Math.sin(a)*off;
+                lightningSegment(sx,y+h+.1,sz,x+Math.cos(a+.2)*.15,y+h-1.05, z+Math.sin(a+.2)*.15,.16,.98f,.18f,.025f,.92);
+                lightningSegment(sx,y+h-.45,sz,x+Math.cos(a+.34)*.28,y+h-1.7,z+Math.sin(a+.34)*.28,.09,1,.64f,.045f,.9);
+            }
+            rotatedCube(x,y+h,z,scale,scale,scale,t*.075,.22f,.12f,.12f);
+            cube(x,y+h+.05,z,scale*.66,scale*.68,scale*.66,.92f,.19f,.035f);
+            for(int i=0;i<6;i++) {
+                double a=i*Math.PI/3+t*.08;
+                cube(x+Math.cos(a)*scale*.48,y+h+Math.sin(a*.9)*scale*.42,z+Math.sin(a)*scale*.48,.2,.2,.2,1,.43f,.035f);
+            }
+            return;
+        }
+
+        double impact=t-25;
+        double flash=impact<3?1:Math.max(.08,1-impact/28.0);
+        if(impact<38) {
+            double wave=Math.min(6.2,.18+impact*.19);
+            ring(x,y+.06,z,Math.max(.08,wave-.22),wave,72,1,.24f,.035f);
+            ring(x,y+.075,z,Math.max(.06,wave-.42),Math.max(.07,wave-.3),72,1,.72f,.12f);
+            if(impact<19) {
+                double radius=.25+impact*.105;
+                sphereCage(x,y+.85,z,radius,8,14,.035,.95f,.16f,.025f);
+                sphereCage(x,y+.85,z,radius*.68,6,12,.022,1,.62f,.12f);
+            }
+            // Hot angular fragments arc upward and outward, entirely in the render pass.
+            for(int i=0;i<18;i++) {
+                double a=i*Math.PI*2/18+(i%3)*.08,flight=Math.min(1,impact/15.0),r=.5+flight*(1.1+(i%4)*.24);
+                double py=y+.25+Math.sin(flight*Math.PI*.72)*(1.2+(i%5)*.16);
+                float red=i%3==0?.92f:1f,green=i%3==0?.12f:.42f;
+                cube(x+Math.cos(a)*r,py,z+Math.sin(a)*r,.12,.16,.12,red,green,.035f);
+            }
+            if(impact<6) {
+                for(int arm=0;arm<8;arm++) {
+                    double a=arm*Math.PI/4+impact*.03;
+                    lightningSegment(x,y+.12,z,x+Math.cos(a)*wave,y+.18+flash*.35,z+Math.sin(a)*wave,.09*flash,1,.34f,.045f,flash);
+                }
+            }
+        }
+    }
+
+    private static void sphereCage(double x,double y,double z,double radius,int latitudes,int longitudes,
+                                   double width,float r,float g,float b) {
+        for(int lon=0;lon<longitudes&&room();lon++) {
+            double a=lon*Math.PI*2/longitudes;
+            for(int lat=0;lat<latitudes&&room();lat++) {
+                double b0=-Math.PI/2+Math.PI*lat/latitudes,b1=-Math.PI/2+Math.PI*(lat+1)/latitudes;
+                double x0=x+Math.cos(b0)*Math.cos(a)*radius,y0=y+Math.sin(b0)*radius,z0=z+Math.cos(b0)*Math.sin(a)*radius;
+                double x1=x+Math.cos(b1)*Math.cos(a)*radius,y1=y+Math.sin(b1)*radius,z1=z+Math.cos(b1)*Math.sin(a)*radius;
+                lightningSegment(x0,y0,z0,x1,y1,z1,width,r,g,b,1);
+            }
+        }
+        for(int lat=1;lat<latitudes&&room();lat++) {
+            double elevation=-Math.PI/2+Math.PI*lat/latitudes,ringRadius=Math.cos(elevation)*radius,ringY=y+Math.sin(elevation)*radius;
+            for(int lon=0;lon<longitudes&&room();lon++) {
+                double a=lon*Math.PI*2/longitudes,n=(lon+1)*Math.PI*2/longitudes;
+                lightningSegment(x+Math.cos(a)*ringRadius,ringY,z+Math.sin(a)*ringRadius,
+                        x+Math.cos(n)*ringRadius,ringY,z+Math.sin(n)*ringRadius,width,r,g,b,1);
+            }
         }
     }
 
