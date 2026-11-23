@@ -46,7 +46,7 @@ public final class VisualEffectRenderer {
 
     public static void initialize() {
         LevelExtractionEvents.END_EXTRACTION.register(context -> extracted = active);
-        LevelRenderEvents.BEFORE_TRANSLUCENT_TERRAIN.register(VisualEffectRenderer::prepare);
+        LevelRenderEvents.BEFORE_RENDER_PASS.register(VisualEffectRenderer::prepare);
         LevelRenderEvents.END_MAIN.register(context -> BUFFER.endFrame());
     }
 
