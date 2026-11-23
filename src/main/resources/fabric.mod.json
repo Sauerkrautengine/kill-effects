@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "killeffects",
+  "version": "${version}",
+  "name": "KillEffects",
+  "description": "Client-side PvP kill effects for Fabric.",
+    "icon": "assets/killeffects/icon.png",
+  "authors": ["KillEffects contributors"],
+  "license": "MIT",
+  "environment": "client",
+  "mixins": ["killeffects.client.mixins.json"],
+  "entrypoints": { "client": ["com.example.killeffects.KillEffectsClient"] },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": ">=0.165.2"
+  }
+}
