@@ -11,9 +11,9 @@
   "mixins": ["killeffects.client.mixins.json"],
   "entrypoints": { "client": ["com.example.killeffects.KillEffectsClient"] },
   "depends": {
-    "fabricloader": ">=0.19.5",
+    "fabricloader": ">=0.20.1",
     "minecraft": "~26.3",
     "java": ">=25",
-    "fabric-api": ">=0.165.2"
+    "fabric-api": ">=0.166.2"
   }
 }
