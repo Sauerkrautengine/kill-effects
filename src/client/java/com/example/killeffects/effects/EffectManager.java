@@ -30,11 +30,13 @@ public final class EffectManager {
         if (playing==null || client.level==null) return;
         if (!EffectConfig.enabled) { VisualEffectRenderer.stop(); playing=null; return; }
         ClientLevel level=client.level;
-        // All ten effects are now animated as custom 3D scenes. The old
-        // per-effect particle presets are intentionally no longer used here.
+        // Mesh animation supplies the recognizable 3D centerpiece; each effect's
+        // own particles add trails, impact dust, sparks, and atmosphere around it.
         VisualEffectRenderer.tick();
+        playing.tick(level,x,y,z,age,EffectConfig.particleLimit);
         age++;
         if (age>=playing.duration()) { VisualEffectRenderer.stop(); playing=null; }
     }
 }
+
 
