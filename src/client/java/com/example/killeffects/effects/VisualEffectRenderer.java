@@ -46,6 +46,8 @@ public final class VisualEffectRenderer {
 
     public static void initialize() {
         LevelExtractionEvents.END_EXTRACTION.register(context -> extracted = active);
+        // Buffer uploads issue GPU commands, so build/upload before Minecraft
+        // opens its main render pass rather than from a terrain draw callback.
         LevelRenderEvents.BEFORE_RENDER_PASS.register(VisualEffectRenderer::prepare);
         LevelRenderEvents.END_MAIN.register(context -> BUFFER.endFrame());
     }
@@ -188,6 +190,14 @@ public final class VisualEffectRenderer {
         double px=Math.cos(a)*rx,py=Math.sin(a)*ry;
         return p(x+px*Math.cos(yaw)-w*Math.sin(yaw),y+py,z+px*Math.sin(yaw)+w*Math.cos(yaw));
     }
+    private static void ovalDisc(double x,double y,double z,double rx,double ry,double yaw,int segments,float r,float g,float b) {
+        double[] center=p(x,y,z);
+        for(int i=0;i<segments&&room();i++) {
+            double a=Math.PI*2*i/segments,n=Math.PI*2*(i+1)/segments;
+            double[] p0=ovalPoint(x,y,z,rx,ry,a,yaw,0),p1=ovalPoint(x,y,z,rx,ry,n,yaw,0);
+            quad(center,p0,p1,p1,r,g,b,1);
+        }
+    }
     private static void ribbon(double[] a,double[] b,double[] c,double[] d,float r,float g,float bl) { quad(a,b,c,d,r,g,bl,1); }
     private static double[] p(double x,double y,double z) { return new double[]{x,y,z}; }
 
@@ -248,6 +258,14 @@ public final class VisualEffectRenderer {
         for(int i=0;i<4;i++){double xx=corners[i][0],yy=corners[i][1];double ry=yy*cr,rx=xx+yy*sr;out[i]=p(x+rx*ca,y+ry,z+rx*sa);}
         quad(out[0],out[1],out[2],out[3],color[0],color[1],color[2],1);
         quad(out[3],out[2],out[1],out[0],.98f,.91f,.68f,1);
+        double fx=x-Math.sin(yaw)*.014,fz=z+Math.cos(yaw)*.014;
+        for(int i=0;i<4;i++) {
+            double[] a=out[i],b=out[(i+1)%4];
+            lightningSegment(a[0]-x+fx,a[1],a[2]-z+fz,b[0]-x+fx,b[1],b[2]-z+fz,.014,.98f,.91f,.67f,1);
+        }
+        runeDiamond(fx,y,fz,.105,yaw,.96f,.88f,.65f);
+        runeDiamond(fx,y+.22,fz,.042,yaw,1,.98f,.86f);
+        runeDiamond(fx,y-.22,fz,.042,yaw,1,.98f,.86f);
     }
 
     private static void thunder(Scene s) {
@@ -318,6 +336,7 @@ public final class VisualEffectRenderer {
 
     private static void arcane(Scene s) {
         double t=s.age(),x=s.x(),y=s.y(),z=s.z(),pulse=.7+.25*Math.sin(t*.16);
+        solidSphere(x,y+1.05,z,.34*pulse,10,18,.025f,.12f,.42f,.86f);
         ring(x,y+.08,z,.9*pulse,1.02*pulse,72,.48f,.18f,1);
         ring(x,y+.13,z,.55*pulse,.62*pulse,64,.16f,.76f,1);
         for(int i=0;i<6;i++) {
@@ -406,6 +425,8 @@ public final class VisualEffectRenderer {
         double charge=t<20?t/20.0:t<40?1:t<54?Math.max(.2,1-(t-40)/18.0):Math.max(.05,.45-(t-54)*.025);
         if(t>=16&&t<69) {
             double radius=t<38?.18+(t-16)*.037:t<54?.95+(t-38)*.17:Math.max(.08,3.7-(t-54)*.16);
+            // Filled inner volume keeps the soul core from reading as a bare wire cage.
+            solidSphere(x,y+1.15,z,radius*.47,9,16,.035f,.16f,.62f,.88f);
             sphereCage(x,y+1.15,z,radius,12,20,.035,.035f,.25f,.72f);
             sphereCage(x,y+1.15,z,radius*.78,8,16,.022,.08f,.72f,.88f);
             if(t<41) {
@@ -465,6 +486,7 @@ public final class VisualEffectRenderer {
             ring(x,y+.075,z,Math.max(.06,wave-.42),Math.max(.07,wave-.3),72,1,.72f,.12f);
             if(impact<19) {
                 double radius=.25+impact*.105;
+                solidSphere(x,y+.85,z,radius*.68,8,16,.025f,.96f,.27f,.035f);
                 sphereCage(x,y+.85,z,radius,8,14,.035,.95f,.16f,.025f);
                 sphereCage(x,y+.85,z,radius*.68,6,12,.022,1,.62f,.12f);
             }
@@ -505,11 +527,33 @@ public final class VisualEffectRenderer {
         }
     }
 
+    /** Faceted, filled volume with a soft color falloff; used behind the wire details. */
+    private static void solidSphere(double x,double y,double z,double radius,int latitudes,int longitudes,
+                                    float r,float g,float b,float highlight) {
+        for(int lat=0;lat<latitudes&&room();lat++) {
+            double a0=-Math.PI/2+Math.PI*lat/latitudes,a1=-Math.PI/2+Math.PI*(lat+1)/latitudes;
+            float band=(float)(.42+.58*Math.max(0,Math.sin((a0+a1)*.5)));
+            float rr=Math.min(1,r*band+highlight*.13f),gg=Math.min(1,g*band+highlight*.13f),bb=Math.min(1,b*band+highlight*.13f);
+            for(int lon=0;lon<longitudes&&room();lon++) {
+                double b0=Math.PI*2*lon/longitudes,b1=Math.PI*2*(lon+1)/longitudes;
+                double[] p0=spherePoint(x,y,z,radius,a0,b0),p1=spherePoint(x,y,z,radius,a0,b1),
+                        p2=spherePoint(x,y,z,radius,a1,b1),p3=spherePoint(x,y,z,radius,a1,b0);
+                quad(p0,p1,p2,p3,rr,gg,bb,1);
+            }
+        }
+    }
+
+    private static double[] spherePoint(double x,double y,double z,double radius,double latitude,double longitude) {
+        double horizontal=Math.cos(latitude)*radius;
+        return p(x+Math.cos(longitude)*horizontal,y+Math.sin(latitude)*radius,z+Math.sin(longitude)*horizontal);
+    }
+
     private static void voidPortal(Scene s) {
         double t=s.age(),x=s.x(),y=s.y(),z=s.z();
         double open=t<24?t/24.0:t<64?1:Math.max(.02,1-(t-64)/25.0),yaw=t*.018;
         double rx=1.15*open,ry=2.05*open;
         if(open<=.03)return;
+        ovalDisc(x,y+1.9,z,rx*.78,ry*.84,yaw,48,.018f,.006f,.045f);
         ovalRing(x,y+1.9,z,rx,ry,.16,yaw,72,.23f,.06f,.5f);
         ovalRing(x,y+1.9,z,rx*.84,ry*.91,.07,yaw,72,.86f,.12f,1);
         ovalRing(x,y+1.9,z,rx*1.12,ry*1.1,.055,yaw,72,.14f,.82f,1);
